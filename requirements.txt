@@ -1,0 +1,8 @@
+Flask==0.12.1
+itsdangerous==0.24
+Jinja2==2.9.6
+MarkupSafe==1.0
+requests==2.13.0
+urllib3==1.20
+Werkzeug==0.12.1
+git+git://github.com/ellzey/simplegist.git@master#egg=simplegist

@@ -15,91 +15,143 @@
 #   limitations under the License.
 
 import json
-import shlex
 import socket
-import subprocess
 import time
+import uuid
+import os
 
-from flask import Flask, Response, request, send_from_directory
 
+from simplegist import Simplegist
+from flask      import Flask, Response, request, send_from_directory, jsonify
+import urllib3
+
+
+urllib3.disable_warnings()
 
 app = Flask(__name__, static_folder='static')
-traceroute_bin = "/bin/traceroute-suid"
+
+GIST_FILE_HEADER     = os.environ['GIST_FILE_HEADER']
+GIST_TMPDIR          = os.environ['GIST_TMPDIR']
+GIST_FILENAME_HEADER = os.environ['GIST_FILENAME_HEADR']
+GIST_DESC_HEADER     = os.environ['GIST_DESC_HEADER']
+GIST_USER            = os.environ['GIST_USER']
+GIST_TOKEN           = os.environ['GIST_TOKEN']
+REALIP_HDR           = os.environ['REALIP_HDR']
+USER                 = os.environ['USER']
+GROUP                = os.environ['GROUP']
+
+@app.route('/_gist',  methods=['POST'])
+def gist_it():
+    if request.method != 'POST':
+        abort(404)
+
+    # where nginx stores the client body files.
+    file_name = request.headers.get(GIST_FILE_HEADER)
+
+    if not file_name or os.path.dirname(file_name) != GIST_TMPDIR:
+        abort(404)
 
 
-@app.route("/")
-def icanhazafunction():
-    if 'icanhazptr' in request.host:
-        # The request is for *.icanhazptr.com
+    try:
+        filename = request.headers.get(GIST_FILENAME_HEADER)
+    except:
+        filename = 'cfgsh'
+
+    try:
+        descrip = request.headers.get(GIST_DESC_HEADER)
+    except:
+        descrip = 'nop' 
+
+    gist = Simplegist(username=GIST_USER,
+                      api_token=GIST_TOKEN)
+
+
+
+    with open(file_name, 'r') as fp:
+        _content = fp.read()
+
+    # description name public content
+    response = gist.create(name        = str(filename),
+                           description = str(descrip),
+                           public      = False,
+                           content     = _content)
+
+    return jsonify(response)
+
+
+@app.route('/uu',  methods=['GET'])
+def gen_uuid():
+    return jsonify(str(uuid.uuid4()))
+
+@app.route('/rng', methods=['GET'])
+def gen_randoms():
+
+    rando = list()
+
+    for i in range(0, 4):
+        rando.append(uuid.uuid4().int & (1<<64)-1)
+
+    return jsonify(rando)
+
+
+@app.route("/hdr", methods=['GET'])
+def headers():
+    hdrs = dict(request.headers)
+
+    # remove the header set by nginx before
+    # dumping
+    hdrs.pop(REALIP_HDR, None)
+
+    return jsonify(hdrs)
+
+@app.route("/ip", methods=['GET'])
+def ip():
+    rip = str()
+
+    # chrome-type data savers. The save-data is set if
+    # on, and the real ip address can be found at Forwarded: for=[]
+    if request.headers.get("Save-Data") and request.headers.get("Forwarded"):
         try:
-            output = socket.gethostbyaddr(request.remote_addr)
-            result = output[0]
+            rip = request.headers.get('Forwarded', None).strip('for=\"[')[:-1]
         except:
-            result = request.remote_addr
-    elif 'icanhazepoch' in request.host:
-        epoch_time = int(time.time())
-        result = epoch_time
-    elif 'icanhaztrace' in request.host:
-        # The request is for *.icanhaztraceroute.com
-        valid_ip = False
-        try:
-            socket.inet_pton(socket.AF_INET, request.remote_addr)
-            valid_ip = True
-        except socket.error:
-            pass
-        try:
-            socket.inet_pton(socket.AF_INET6, request.remote_addr)
-            valid_ip = True
-        except socket.error:
-            pass
-        if valid_ip:
-            if 'icanhaztraceroute' in request.host:
-                tracecmd = shlex.split("%s -q 1 -f 2 -w 1 %s" %
-                                       (traceroute_bin, request.remote_addr))
-            else:
-                tracecmd = shlex.split("%s -q 1 -f 2 -w 1 -n %s" %
-                                       (traceroute_bin, request.remote_addr))
-            result = subprocess.Popen(
-                tracecmd,
-                stdout=subprocess.PIPE
-                ).communicate()[0].strip()
-        else:
-            result = request.remote_addr
-    elif 'icanhazproxy' in request.host:
-        proxy_headers = [
-            'via',
-            'forwarded',
-            'client-ip',
-            'useragent_via',
-            'proxy_connection',
-            'xproxy_connection',
-            'http_pc_remote_addr',
-            'http_client_ip',
-            'http_x_appengine_country'
-            ]
-        found_headers = {}
-        for header in proxy_headers:
-            value = request.headers.get(header, None)
-            if value:
-                found_headers[header] = value.strip()
-        if len(found_headers) > 0:
-            result = json.dumps(found_headers)
-        else:
-            return Response(""), 204
-    elif 'icanhazheaders' in request.host:
-        result = json.dumps(dict(request.headers))
+            abort(404)
     else:
-        # The request is for *.icanhazip.com or something we don't recognize
-        result = request.remote_addr
-    return Response("%s\n" % result, mimetype="text/plain", headers={'X-Your-Ip': request.remote_addr})
+        rip = request.headers.get(REALIP_HDR)
+
+    if not rip:
+        rip = request.remote_addr
+
+    return jsonify(rip)
+
+@app.route("/epoch", methods=['GET'])
+def epoch():
+    return jsonify(int(time.time()))
 
 
-@app.route('/crossdomain.xml')
-@app.route('/humans.txt')
-@app.route('/robots.txt')
-def static_from_root():
-    return send_from_directory(app.static_folder, request.path[1:])
+@app.route('/help', methods=['GET'])
+def help(): 
+   
+    helpers = [
+        { 'Fetch your current IP address' : 'http://ip.cfg.sh'   },
+        { 'Fetch the current EPOCH'       : 'http://time.cfg.sh' },
+        { 'Display browser headers'       : 'http://hdr.cfg.sh'  },
+        { 'Generate 4 random numbers'     : 'http://rng.cfg.sh'  },
+        { 'Quickly create a gist'         : 'http://gst.cfg.sh'  },
+        { 'This help :)'                  : 'http://help.cfg.sh' }
+    ]
+
+    return jsonify(helpers)
+
+
+@app.route("/", methods=['GET'])
+def icanhazroot():
+    abort(404)
 
 
 if __name__ == "__main__":
+    import pwd
+    import grp
+
+    os.setegid(grp.getgrnam(USER)[2])
+    os.seteuid(pwd.getpwnam(GROUP)[2]);
     app.run()
