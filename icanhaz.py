@@ -14,24 +14,25 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-import json
+import urlparse
+import urllib3
 import socket
+import json
 import time
 import uuid
 import os
 
 
 from simplegist import Simplegist
-from flask      import Flask, Response, request, send_from_directory, jsonify
-import urllib3
+from flask      import Flask, Response, request, send_from_directory, jsonify, redirect, abort
 
+from shorten import UrlShortener 
 
 urllib3.disable_warnings()
 
-app = Flask(__name__, static_folder='static')
 
 GIST_FILE_HEADER     = os.environ['GIST_FILE_HEADER']
-GIST_TMPDIR          = os.environ['GIST_TMPDIR']
+GIST_TMPDIR           = os.environ['GIST_TMPDIR']
 GIST_FILENAME_HEADER = os.environ['GIST_FILENAME_HEADR']
 GIST_DESC_HEADER     = os.environ['GIST_DESC_HEADER']
 GIST_USER            = os.environ['GIST_USER']
@@ -39,6 +40,39 @@ GIST_TOKEN           = os.environ['GIST_TOKEN']
 REALIP_HDR           = os.environ['REALIP_HDR']
 USER                 = os.environ['USER']
 GROUP                = os.environ['GROUP']
+
+app    = Flask(__name__, static_folder='static')
+linksh = UrlShortener()
+
+@app.route('/link_get/<code>')
+def expand_url(code):
+    url = linksh.lookup(code)
+
+    if not url:
+        abort(404)
+
+    return redirect(url)
+
+
+@app.route('/link_set', methods=['POST'])
+def shorten_url():
+    if not request.json or 'longUrl' not in request.json:
+        print('NOOOO\n')
+        abort(404)
+
+    long_url = urlparse.urlparse(request.json['longUrl'])
+
+    if long_url.netloc == '':
+        url = 'http://' + request.json['longUrl']
+    else:
+        url = request.json['longUrl']
+
+    res = linksh.shorten(url)
+
+    print ("shortened %s to %s", url, res)
+
+    return jsonify(res)
+
 
 @app.route('/_gist',  methods=['POST'])
 def gist_it():
@@ -64,7 +98,6 @@ def gist_it():
 
     gist = Simplegist(username=GIST_USER,
                       api_token=GIST_TOKEN)
-
 
 
     with open(file_name, 'r') as fp:

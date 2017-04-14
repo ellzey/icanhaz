@@ -5,4 +5,5 @@ MarkupSafe==1.0
 requests==2.13.0
 urllib3==1.20
 Werkzeug==0.12.1
+pickleDB==0.6.2
 git+git://github.com/ellzey/simplegist.git@master#egg=simplegist
